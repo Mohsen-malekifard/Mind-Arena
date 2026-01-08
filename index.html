@@ -1,0 +1,374 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Mind Arena</title>
+<style>
+/* =========================
+   RESET
+========================= */
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+  user-select: none;
+}
+
+body {
+  background: radial-gradient(circle at center, #0f2027, #000);
+  font-family: Arial, Helvetica, sans-serif;
+  color: #fff;
+  overflow: hidden;
+}
+
+/* =========================
+   HUD
+========================= */
+#hud {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  gap: 20px;
+  font-size: 14px;
+  z-index: 10;
+}
+
+.hud-box {
+  padding: 8px 14px;
+  background: rgba(0,0,0,0.5);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 6px;
+  backdrop-filter: blur(6px);
+}
+
+/* =========================
+   CANVAS
+========================= */
+canvas {
+  display: block;
+}
+
+/* =========================
+   OVERLAY
+========================= */
+#overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  z-index: 20;
+}
+
+#overlay h1 {
+  font-size: 48px;
+  margin-bottom: 10px;
+}
+
+#overlay p {
+  opacity: 0.8;
+  margin-bottom: 20px;
+}
+
+#overlay button {
+  padding: 12px 28px;
+  font-size: 16px;
+  background: linear-gradient(135deg,#00c6ff,#0072ff);
+  border: none;
+  border-radius: 30px;
+  color: #fff;
+  cursor: pointer;
+}
+
+#overlay button:hover {
+  transform: scale(1.05);
+}
+</style>
+</head>
+<body>
+
+<div id="hud">
+  <div class="hud-box">❤️ HP: <span id="hp">100</span></div>
+  <div class="hud-box">⭐ Score: <span id="score">0</span></div>
+  <div class="hud-box">🌊 Wave: <span id="wave">1</span></div>
+  <div class="hud-box">⏸ P = Pause</div>
+</div>
+
+<div id="overlay">
+  <h1>GAME OVER</h1>
+  <p>Your mind couldn’t handle the pressure.</p>
+  <button onclick="restart()">Restart</button>
+</div>
+
+<canvas id="game"></canvas>
+
+<script>
+/* =========================
+   CANVAS SETUP
+========================= */
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+function resize() {
+  canvas.width = window.innerWidth;
+  canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener("resize", resize);
+
+/* =========================
+   GAME STATE
+========================= */
+let paused = false;
+let gameOver = false;
+let score = 0;
+let wave = 1;
+
+/* =========================
+   PLAYER
+========================= */
+const player = {
+  x: canvas.width / 2,
+  y: canvas.height / 2,
+  r: 18,
+  speed: 5,
+  hp: 100
+};
+
+/* =========================
+   INPUT
+========================= */
+const keys = {};
+window.addEventListener("keydown", e => {
+  keys[e.key.toLowerCase()] = true;
+  if (e.key.toLowerCase() === "p") paused = !paused;
+});
+window.addEventListener("keyup", e => {
+  keys[e.key.toLowerCase()] = false;
+});
+
+canvas.addEventListener("click", shoot);
+
+/* =========================
+   ARRAYS
+========================= */
+let bullets = [];
+let enemies = [];
+let particles = [];
+
+/* =========================
+   BULLET
+========================= */
+function shoot(e) {
+  if (paused || gameOver) return;
+  const angle = Math.atan2(
+    e.clientY - player.y,
+    e.clientX - player.x
+  );
+  bullets.push({
+    x: player.x,
+    y: player.y,
+    vx: Math.cos(angle) * 10,
+    vy: Math.sin(angle) * 10,
+    r: 4
+  });
+}
+
+/* =========================
+   ENEMY SPAWN
+========================= */
+function spawnWave() {
+  for (let i = 0; i < wave * 5; i++) {
+    const edge = Math.floor(Math.random() * 4);
+    let x, y;
+    if (edge === 0) { x = 0; y = Math.random() * canvas.height; }
+    if (edge === 1) { x = canvas.width; y = Math.random() * canvas.height; }
+    if (edge === 2) { x = Math.random() * canvas.width; y = 0; }
+    if (edge === 3) { x = Math.random() * canvas.width; y = canvas.height; }
+
+    enemies.push({
+      x,
+      y,
+      r: 16,
+      speed: 1 + wave * 0.15,
+      hp: 2 + wave * 0.5
+    });
+  }
+}
+
+/* =========================
+   PARTICLES
+========================= */
+function explode(x, y, color) {
+  for (let i = 0; i < 15; i++) {
+    particles.push({
+      x,
+      y,
+      vx: (Math.random() - 0.5) * 6,
+      vy: (Math.random() - 0.5) * 6,
+      life: 30,
+      color
+    });
+  }
+}
+
+/* =========================
+   UPDATE
+========================= */
+function update() {
+  if (paused || gameOver) return;
+
+  // Movement
+  if (keys["w"]) player.y -= player.speed;
+  if (keys["s"]) player.y += player.speed;
+  if (keys["a"]) player.x -= player.speed;
+  if (keys["d"]) player.x += player.speed;
+
+  // Clamp
+  player.x = Math.max(player.r, Math.min(canvas.width - player.r, player.x));
+  player.y = Math.max(player.r, Math.min(canvas.height - player.r, player.y));
+
+  // Bullets
+  bullets.forEach((b, i) => {
+    b.x += b.vx;
+    b.y += b.vy;
+    if (
+      b.x < 0 || b.y < 0 ||
+      b.x > canvas.width || b.y > canvas.height
+    ) bullets.splice(i,1);
+  });
+
+  // Enemies
+  enemies.forEach((e, ei) => {
+    const dx = player.x - e.x;
+    const dy = player.y - e.y;
+    const dist = Math.hypot(dx, dy);
+    e.x += dx / dist * e.speed;
+    e.y += dy / dist * e.speed;
+
+    // Damage player
+    if (dist < player.r + e.r) {
+      player.hp -= 0.3;
+      if (player.hp <= 0) endGame();
+    }
+
+    // Bullet collision
+    bullets.forEach((b, bi) => {
+      if (Math.hypot(b.x - e.x, b.y - e.y) < b.r + e.r) {
+        bullets.splice(bi,1);
+        e.hp--;
+        explode(e.x,e.y,"#ff5555");
+        if (e.hp <= 0) {
+          enemies.splice(ei,1);
+          score += 10;
+        }
+      }
+    });
+  });
+
+  // Next wave
+  if (enemies.length === 0) {
+    wave++;
+    spawnWave();
+  }
+
+  // Particles
+  particles.forEach((p,i)=>{
+    p.x += p.vx;
+    p.y += p.vy;
+    p.life--;
+    if (p.life <= 0) particles.splice(i,1);
+  });
+
+  // HUD
+  document.getElementById("hp").innerText = Math.max(0,player.hp.toFixed(0));
+  document.getElementById("score").innerText = score;
+  document.getElementById("wave").innerText = wave;
+}
+
+/* =========================
+   DRAW
+========================= */
+function draw() {
+  ctx.fillStyle = "rgba(0,0,0,0.3)";
+  ctx.fillRect(0,0,canvas.width,canvas.height);
+
+  // Player
+  ctx.beginPath();
+  ctx.arc(player.x,player.y,player.r,0,Math.PI*2);
+  ctx.fillStyle = "#00ffff";
+  ctx.fill();
+
+  // Bullets
+  ctx.fillStyle = "#fff";
+  bullets.forEach(b=>{
+    ctx.beginPath();
+    ctx.arc(b.x,b.y,b.r,0,Math.PI*2);
+    ctx.fill();
+  });
+
+  // Enemies
+  enemies.forEach(e=>{
+    ctx.beginPath();
+    ctx.arc(e.x,e.y,e.r,0,Math.PI*2);
+    ctx.fillStyle = "#ff3333";
+    ctx.fill();
+  });
+
+  // Particles
+  particles.forEach(p=>{
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x,p.y,2,2);
+  });
+
+  if (paused) {
+    ctx.fillStyle = "#fff";
+    ctx.font = "40px Arial";
+    ctx.fillText("PAUSED", canvas.width/2-80, canvas.height/2);
+  }
+}
+
+/* =========================
+   LOOP
+========================= */
+function loop() {
+  update();
+  draw();
+  requestAnimationFrame(loop);
+}
+
+/* =========================
+   GAME CONTROL
+========================= */
+function endGame() {
+  gameOver = true;
+  document.getElementById("overlay").style.display = "flex";
+}
+
+function restart() {
+  enemies = [];
+  bullets = [];
+  particles = [];
+  score = 0;
+  wave = 1;
+  player.hp = 100;
+  player.x = canvas.width/2;
+  player.y = canvas.height/2;
+  gameOver = false;
+  document.getElementById("overlay").style.display = "none";
+  spawnWave();
+}
+
+/* =========================
+   START
+========================= */
+spawnWave();
+loop();
+</script>
+
+</body>
+</html>
